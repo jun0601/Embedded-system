@@ -1,0 +1,129 @@
+calculate42.c
+
+#include <stdio.h>
+#include <fcntl.h>
+#include <unistd.h>
+#include <sys/mman.h>
+
+#define FPGA_SPAN 0x00200000
+#define FPGA_BASE_ADDR 0xFF200000
+#define SEG7_OFFSET 0x00000020
+#define BUTTON_OFFSET 0x00000050
+
+void writeSegment(unsigned int *virtual_base, int value) {
+    unsigned int *seg7_ptr = virtual_base + (SEG7_OFFSET / sizeof(unsigned int));
+    unsigned int segments = 0;
+
+    int isNegative = 0; 
+    if (value < 0) {
+        isNegative = 1;
+        value = -value;  
+    }
+
+  
+    for (int i = 0; i < 7; i++) {
+        unsigned int digit = value % 10;  
+
+       
+        switch (digit) {
+            case 0:
+                segments |= 0x3F << (8 * i);  // 0b00111111
+                break;
+            case 1:
+                segments |= 0x06 << (8 * i);  // 0b00000110
+                break;
+            case 2:
+                segments |= 0x5B << (8 * i);  // 0b01011011
+                break;
+            case 3:
+                segments |= 0x4F << (8 * i);  // 0b01001111
+                break;
+            case 4:
+                segments |= 0x66 << (8 * i);  // 0b01100110
+                break;
+            case 5:
+                segments |= 0x6D << (8 * i);  // 0b01101101
+                break;
+            case 6:
+                segments |= 0x7D << (8 * i);  // 0b01111101
+                break;
+            case 7:
+                segments |= 0x07 << (8 * i);  // 0b00000111
+                break;
+            case 8:
+                segments |= 0x7F << (8 * i);  // 0b01111111
+                break;
+            case 9:
+                segments |= 0x6F << (8 * i);  // 0b01101111
+                break;
+            default:
+                segments |= 0x00 << (8 * i);  // 0b00000000
+                break;
+        }
+
+        value /= 10; 
+    }
+
+  
+    if (isNegative) {
+        segments |= 0x40 << 24;  // 음수 구별 표시
+    }
+
+    *seg7_ptr = segments;
+}
+
+int readButton(unsigned int *virtual_base) {
+    unsigned int *button_ptr = virtual_base + (BUTTON_OFFSET / sizeof(unsigned int));
+    return *button_ptr;
+}
+
+int main() {
+    int fd;
+    void *virtual_base;
+
+    if ((fd = open("/dev/mem", (O_RDWR | O_SYNC))) == -1) {
+        printf("Failed to open /dev/mem.\n");
+        return -1;
+    }
+
+    virtual_base = mmap(NULL, FPGA_SPAN, (PROT_READ | PROT_WRITE), MAP_SHARED, fd, FPGA_BASE_ADDR);
+
+    if (virtual_base == MAP_FAILED) {
+        printf("Failed to map the physical address.\n");
+        return -1;
+    }
+
+    unsigned int num1 = 0;
+    unsigned int num2 = 0;
+
+    printf("Enter the first number: ");
+    scanf("%u", &num1);
+
+    printf("Enter the second number: ");
+    scanf("%u", &num2);
+
+    int sum = num1 + num2;
+    int diff = num1 - num2;
+
+    printf("Sum: %d\n", sum);
+    printf("Difference: %d\n", diff);
+
+    while (1) {
+        int button = readButton(virtual_base);
+        if (button == 1) {
+            writeSegment(virtual_base, sum);
+        } else if (button == 2) {
+            writeSegment(virtual_base, diff);
+        } else if (button == 3) {
+            break;  
+        }
+    }
+
+    munmap(virtual_base, FPGA_SPAN);
+    close(fd);
+
+    return 0;
+}
+
+
+
